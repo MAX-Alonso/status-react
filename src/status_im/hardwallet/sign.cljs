@@ -31,6 +31,28 @@
                 (when-not keycard-match?
                   (common/show-wrong-keycard-alert card-connected?))))))
 
+(fx/defn sign-typed-data
+  {:events [:hardwallet/sign-typed-data]}
+  [{:keys [db] :as cofx}]
+  (let [card-connected? (get-in db [:hardwallet :card-connected?])
+        hash (get-in db [:hardwallet :hash])]
+    (if card-connected?
+      {:db                      (-> db
+                                    (assoc-in [:hardwallet :card-read-in-progress?] true)
+                                    (assoc-in [:signing/sign :keycard-step] :signing))
+       :hardwallet/sign-typed-data {:hash (ethereum/naked-address hash)}}
+      (fx/merge cofx
+                (common/set-on-card-connected :hardwallet/sign-typed-data)
+                {:db (assoc-in db [:signing/sign :keycard-step] :signing)}))))
+
+(fx/defn store-hash-and-sign-typed
+  {:events [:hardwallet/store-hash-and-sign-typed]}
+  [{:keys [db] :as cofx} result]
+  (let [{:keys [result error]} (types/json->clj result)]
+    (fx/merge cofx
+              {:db (assoc-in db [:hardwallet :hash] result)}
+              sign-typed-data)))
+
 (fx/defn prepare-to-sign
   {:events [:hardwallet/prepare-to-sign]}
   [{:keys [db] :as cofx}]
@@ -66,7 +88,8 @@
                        (assoc-in [:hardwallet :pin :sign] [])
                        (assoc-in [:hardwallet :pin :status] nil)
                        (assoc-in [:hardwallet :hash] nil)
-                       (assoc-in [:hardwallet :transaction] nil))}
+                       (assoc-in [:hardwallet :transaction] nil)
+                       (assoc-in [:signing/sign :keycard-step] :success))}
               (common/clear-on-card-connected)
               (common/get-application-info (common/get-pairing db) nil)
               (common/hide-connection-sheet)
