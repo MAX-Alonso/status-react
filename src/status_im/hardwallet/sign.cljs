@@ -2,6 +2,7 @@
   (:require [clojure.string :as string]
             [re-frame.core :as re-frame]
             [status-im.ethereum.core :as ethereum]
+            [status-im.hardwallet.card :as card]
             [status-im.utils.fx :as fx]
             [status-im.utils.types :as types]
             [taoensso.timbre :as log]
@@ -31,19 +32,27 @@
                 (when-not keycard-match?
                   (common/show-wrong-keycard-alert card-connected?))))))
 
+(def sign-typed-data-listener (atom nil))
 (fx/defn sign-typed-data
+
   {:events [:hardwallet/sign-typed-data]}
   [{:keys [db] :as cofx}]
   (let [card-connected? (get-in db [:hardwallet :card-connected?])
         hash (get-in db [:hardwallet :hash])]
     (if card-connected?
-      {:db                      (-> db
-                                    (assoc-in [:hardwallet :card-read-in-progress?] true)
-                                    (assoc-in [:signing/sign :keycard-step] :signing))
-       :hardwallet/sign-typed-data {:hash (ethereum/naked-address hash)}}
-      (fx/merge cofx
-                (common/set-on-card-connected :hardwallet/sign-typed-data)
-                {:db (assoc-in db [:signing/sign :keycard-step] :signing)}))))
+      (do
+        (when @sign-typed-data-listener
+          (card/remove-event-listener @sign-typed-data-listener))
+        {:db                      (-> db
+                                      (assoc-in [:hardwallet :card-read-in-progress?] true)
+                                      (assoc-in [:signing/sign :keycard-step] :signing))
+         :hardwallet/sign-typed-data {:hash (ethereum/naked-address hash)}})
+      (do
+        (reset! sign-typed-data-listener
+                (card/on-card-connected #(re-frame/dispatch [:hardwallet/sign-typed-data])))
+        (fx/merge cofx
+                  (common/set-on-card-connected :hardwallet/sign-typed-data)
+                  {:db (assoc-in db [:signing/sign :keycard-step] :signing)})))))
 
 (fx/defn store-hash-and-sign-typed
   {:events [:hardwallet/store-hash-and-sign-typed]}
